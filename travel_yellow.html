@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Travel Map - Yellow Highlight Edition (GBP)</title>
+    <!-- Leaflet Open-Source Mapping CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        body { margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; display: flex; height: 100vh; background: #1a252f; }
+        #sidebar { width: 350px; background: #2c3e50; color: white; padding: 20px; box-sizing: border-box; display: flex; flex-direction: column; gap: 15px; z-index: 1000; box-shadow: 2px 0 5px rgba(0,0,0,0.3); }
+        #map { flex-grow: 1; height: 100%; background: #141b22; }
+        h2 { margin-top: 0; color: #f1c40f; } /* Header changed to matching Yellow theme */
+        label { font-size: 14px; font-weight: bold; color: #ecf0f1; }
+        select, input, button { width: 100%; padding: 10px; border-radius: 4px; border: none; box-sizing: border-box; font-size: 14px; }
+        select, input { background: #34495e; color: white; margin-top: 5px; }
+        button { background: #f1c40f; color: #2c3e50; font-weight: bold; cursor: pointer; transition: 0.2s; margin-top: 10px; border: none; }
+        button:hover { background: #f39c12; }
+        .info-card { background: #34495e; padding: 15px; border-radius: 6px; margin-top: 15px; font-size: 14px; border-left: 4px solid #f1c40f; display: none; line-height: 1.4; }
+    </style>
+</head>
+<body>
+
+    <div id="sidebar">
+        <h2>Smart Travel Map</h2>
+        
+        <!-- Target Month Selection -->
+        <div>
+            <label for="monthSelect">Target Month</label>
+            <select id="monthSelect" onchange="updateMapHighlights()">
+                <option value="1">January</option>
+                <option value="2">February</option>
+                <option value="3">March</option>
+                <option value="4">April</option>
+                <option value="5">May</option>
+                <option value="6">June</option>
+                <option value="7">July</option>
+                <option value="8">August</option>
+                <option value="9">September</option>
+                <option value="10">October</option>
+                <option value="11">November</option>
+                <option value="12">December</option>
+            </select>
+        </div>
+
+        <!-- Budget Input (GBP £) -->
+        <div>
+            <label for="budgetInput">Max Daily Cost (GBP £)</label>
+            <input type="number" id="budgetInput" value="200" oninput="updateMapHighlights()">
+        </div>
+
+        <hr style="border-color: #465d75; width: 100%;">
+
+        <div>
+            <label for="aiPrompt">Search Travel Destination</label>
+            <input type="text" id="aiPrompt" placeholder="e.g., Italy in May under £120">
+            <button onclick="runLocalSearch()">Filter Map Instantly</button>
+        </div>
+
+        <!-- Dynamic Output Info Box -->
+        <div id="infoBox" class="info-card"></div>
+    </div>
+
+    <div id="map"></div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        // CORE GEOGRAPHIC DATA MATRIX (All costs adjusted to GBP £ with direct flight rates)
+        const travelData = {
+            "US": {
+                name: "United States",
+                coords: [[25, -125], [49, -125], [49, -67], [25, -67]],
+                months: {
+                    1: { temp: 4, cost: 115, flight: 380, note: "Cold in the north; popular ski operations active." },
+                    2: { temp: 5, cost: 110, flight: 390, note: "Winter sports peak; desert southwest stays warm." },
+                    3: { temp: 10, cost: 115, flight: 440, note: "Spring break season; weather warming in the south." },
+                    4: { temp: 15, cost: 120, flight: 480, note: "Cherry blossoms in DC; green valleys re-opening." },
+                    5: { temp: 20, cost: 125, flight: 520, note: "Mild spring across national parks with lower crowds." },
+                    6: { temp: 25, cost: 140, flight: 650, note: "Summer breaks kick off; busy theme parks." },
+                    7: { temp: 28, cost: 155, flight: 750, note: "Peak summer vacation time; expensive lodging." },
+                    8: { temp: 28, cost: 150, flight: 720, note: "Hot coastal beaches; high state-fair activities." },
+                    9: { temp: 23, cost: 130, flight: 490, note: "Ideal mountain conditions; summer crowd clears out." },
+                    10: { temp: 16, cost: 115, flight: 410, note: "Stunning autumn leaf changes across New England." },
+                    11: { temp: 10, cost: 125, flight: 460, note: "Holiday Thanksgiving rush; winter weather starts." },
+                    12: { temp: 5, cost: 140, flight: 580, note: "Festive window decorations and winter snow resorts." }
+                }
+            },
+            "IT": {
+                name: "Italy",
+                coords: [[36, 6], [47, 6], [47, 19], [36, 19]],
+                months: {
+                    1: { temp: 11, cost: 70, flight: 45, note: "Chilly, but low crowds in historic cities." },
+                    2: { temp: 12, cost: 75, flight: 50, note: "Carneval season in Venice; cool sightseeing." },
+                    3: { temp: 15, cost: 85, flight: 65, note: "Spring dynamic weather; historic sights open early." },
+                    4: { temp: 19, cost: 100, flight: 110, note: "Easter events; wild spring flowers in bloom." },
+                    5: { temp: 23, cost: 110, flight: 120, note: "Beautiful spring weather, ideal for sightseeing." },
+                    6: { temp: 27, cost: 125, flight: 160, note: "Summer begins; perfect beach conditions." },
+                    7: { temp: 30, cost: 140, flight: 210, note: "Very hot and packed with peak summer tourists." },
+                    8: { temp: 31, cost: 145, flight: 230, note: "Ferragosto holidays; locals head to beaches." },
+                    9: { temp: 26, cost: 115, flight: 130, note: "Excellent grape harvest season; warm seas." },
+                    10: { temp: 21, cost: 95, flight: 85, note: "Mild autumn weather; great wine tours." },
+                    11: { temp: 16, cost: 80, flight: 40, note: "Rainy season across Tuscany; highly affordable." },
+                    12: { temp: 12, cost: 90, flight: 95, note: "Festive Christmas markets and holiday shopping." }
+                }
+            },
+            "TH": {
+                name: "Thailand",
+                coords: [[5, 97], [21, 97], [21, 106], [5, 106]],
+                months: {
+                    1: { temp: 28, cost: 35, flight: 580, note: "Cool and dry season. Perfect beach weather." },
+                    2: { temp: 29, cost: 35, flight: 560, note: "Excellent island visibility; dry weather holds." },
+                    3: { temp: 31, cost: 32, flight: 510, note: "Temperatures rise sharply; good airfare rates." },
+                    4: { temp: 33, cost: 35, flight: 540, note: "Songkran Water Festival nationwide celebration." },
+                    5: { temp: 32, cost: 28, flight: 490, note: "Monsoon transitions begin; brief showers." },
+                    6: { temp: 31, cost: 28, flight: 480, note: "Intermittent afternoon rain storms; cheap hotel rates." },
+                    7: { temp: 30, cost: 28, flight: 520, note: "Monsoon season with heavy, frequent rainfall." },
+                    8: { temp: 30, cost: 28, flight: 530, note: "Lush national parks; rain peaks in the north." },
+                    9: { temp: 29, cost: 24, flight: 460, note: "Wettest month of the year; maximum hotel deals." },
+                    10: { temp: 29, cost: 28, flight: 495, note: "Rain begins to clear out; budget-friendly transition month." },
+                    11: { temp: 29, cost: 32, flight: 550, note: "Loy Krathong festival; cool breeze returns." },
+                    12: { temp: 27, cost: 40, flight: 690, note: "Peak prime holiday season; sunny skies everywhere." }
+                }
+            },
+            "JP": {
+                name: "Japan",
+                coords: [[30, 128], [45, 128], [45, 145], [30, 145]],
+                months: {
+                    1: { temp: 5, cost: 100, flight: 610, note: "Cold, excellent skiing conditions in Hokkaido." },
+                    2: { temp: 6, cost: 95, flight: 590, note: "Winter festivals and beautiful snow scenes." },
+                    3: { temp: 10, cost: 115, flight: 780, note: "Early plum blossoms; spring transition starts." },
+                    4: { temp: 17, cost: 140, flight: 980, note: "Peak Cherry Blossom season. Beautiful but very crowded." },
+                    5: { temp: 22, cost: 110, flight: 680, note: "Pleasant warm weather; avoid Golden Week crowds." },
+                    6: { temp: 25, cost: 100, flight: 620, note: "Rainy season begins; lush green landscapes." },
+                    7: { temp: 29, cost: 115, flight: 790, note: "Hot and humid summer festivals and fireworks." },
+                    8: { temp: 30, cost: 125, flight: 820, note: "Peak summer holidays; great mountain hiking." },
+                    9: { temp: 26, cost: 105, flight: 640, note: "Mild weather, occasional autumn typhoons." },
+                    10: { temp: 19, cost: 110, flight: 690, note: "Perfect autumn foliage and mild trekking weather." },
+                    11: { temp: 14, cost: 105, flight: 650, note: "Crisp autumn air and bright red maple leaves." },
+                    12: { temp: 9, cost: 110, flight: 720, note: "Winter illuminations and clean, clear views." }
+                }
+            },
+            "ZA": {
+                name: "South Africa",
+                coords: [[-35, 16], [-22, 16], [-22, 33], [-35, 33]],
+                months: {
+                    1: { temp: 26, cost: 65, flight: 590, note: "Peak summer warmth. Excellent for Cape Town beaches." },
+                    2: { temp: 26, cost: 60, flight: 550, note: "Warm, sunny beach days and dry wine route trails." },
+                    3: { temp: 24, cost: 58, flight: 510, note: "Pleasant autumn transition; highly comfortable weather." },
+                    4: { temp: 21, cost: 54, flight: 480, note: "Crisp clear days; prime vineyard hiking landscapes." },
+                    5: { temp: 19, cost: 50, flight: 450, note: "Cooler conditions; safari bush clears out." },
+                    6: { temp: 17, cost: 46, flight: 440, note: "Winter begins; excellent clear safari tracking windows." },
+                    7: { temp: 17, cost: 54, flight: 550, note: "Winter season. Optimal for wildlife safari tracking." },
+                    8: { temp: 18, cost: 54, flight: 530, note: "Whale watching peak season along the southern coast." },
+                    9: { temp: 20, cost: 58, flight: 510, note: "Spring returns; massive wild desert blooms visible." },
+                    10: { temp: 21, cost: 58, flight: 510, note: "Spring blooms across the coast; very pleasant weather." },
+                    11: { temp: 23, cost: 60, flight: 560, note: "Summer builds up; great jacaranda blooms in cities." },
+                    12: { temp: 25, cost: 70, flight: 750, note: "Festive summer peak season; booking ahead vital." }
+                }
+            }
+        };
+
+        let map;
+        let polygonLayers = {};
+
+        function initMap() {
+            map = L.map('map').setView([15, 0], 2);
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+                attribution: '&copy; CARTO'
+            }).addTo(map);
+
+            // Establish map boundaries out of local memory arrays
+            for (let code in travelData) {
+                const country = travelData[code];
+                const poly = L.polygon(country.coords, {
+                    weight: 2,
+                    color: '#ffffff',
+                    opacity: 0.4
+                }).addTo(map);
+
+                poly.on('click', () => displayDetails(code));
+                polygonLayers[code] = poly;
+            }
+
+            // Fire structural filter function instantly on load sequence
+            updateMapHighlights();
+        }
+
+        function updateMapHighlights() {
+            const activeMonth = document.getElementById('monthSelect').value;
+            const maxBudget = parseFloat(document.getElementById('budgetInput').value);
+
+            for (let code in travelData) {
+                const country = travelData[code];
+                const stats = country.months[activeMonth];
+                const layer = polygonLayers[code];
+
+                // INSTANT AUTOMATIC GLOBAL HIGH-CONTRAST SELECTION
+                if (stats && stats.cost <= maxBudget) {
+                    layer.setStyle({ 
+                        fillColor: '#f1c40f', // Vivid Yellow Color
+                        fillOpacity: 0.75,   // Solid visibility factor
+                        color: '#f39c12',     // Gold boundary accent border
+                        weight: 2.5
+                    });
+                } else {
+                    layer.setStyle({ 
+                        fillColor: '#34495e', // Muted Grey Out-of-bounds area
+                        fillOpacity: 0.15,   // Highly transparent
+                        color: '#7f8c8d',
+                        weight: 1
+                    });
+                }
+            }
+        }
+
+        function displayDetails(code) {
+            const activeMonth = document.getElementById('monthSelect').value;
+            const country = travelData[code];
+            const stats = country.months[activeMonth];
+            const monthName = document.getElementById('monthSelect').options[activeMonth - 1].text;
+            const infoBox = document.getElementById('infoBox');
+
+            infoBox.style.display = "block";
+            infoBox.innerHTML = `
+                <strong style="font-size:16px; color:#f1c40f;">${country.name}</strong> (${monthName})<br>
+                ☀️ Temperature: ${stats.temp}°C<br>
+                ✈️ Est. Flight (Return): £${stats.flight}<br>
+                💰 Daily Expenses: £${stats.cost}/day<br>
+                📝 <em>${stats.note}</em>
+            `;
+        }
+
+        function runLocalSearch() {
+            const text = document.getElementById('aiPrompt').value.toLowerCase();
+            let detectedMonth = document.getElementById('monthSelect').value;
+            let detectedBudget = document.getElementById('budgetInput').value;
+
+            if (text.includes("jan")) detectedMonth = "1";
+            if (text.includes("feb")) detectedMonth = "2";
+            if (text.includes("mar")) detectedMonth = "3";
+            if (text.includes("apr")) detectedMonth = "4";
+            if (text.includes("may")) detectedMonth = "5";
+            if (text.includes("jun")) detectedMonth = "6";
+            if (text.includes("jul")) detectedMonth = "7";
+            if (text.includes("aug")) detectedMonth = "8";
+            if (text.includes("sep")) detectedMonth = "9";
+            if (text.includes("oct")) detectedMonth = "10";
+            if (text.includes("nov")) detectedMonth = "11";
+            if (text.includes("dec")) detectedMonth = "12";
+
+            const numbers = text.match(/\d+/g);
+            if (numbers) {
+                for (let n of numbers) {
+                    if (parseInt(n) > 12) {
+                        detectedBudget = n;
+                        break;
+                    }
+                }
+            }
+
+            document.getElementById('monthSelect').value = detectedMonth;
+            document.getElementById('budgetInput').value = detectedBudget;
+
+            document.getElementById('infoBox').style.display = "block";
+            document.getElementById('infoBox').innerHTML = `✨ <strong>Smart Search complete!</strong> Highlights synchronized to Month ${detectedMonth} under £${detectedBudget}.`;
+
+            updateMapHighlights();
+        }
+
+        window.onload = initMap;
+    </script>
+</body>
+</html>
