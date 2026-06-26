@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Smart Travel Map - Unlocked</title>
+    <!-- Leaflet Open-Source Mapping CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        body { margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; display: flex; height: 100vh; }
+        #sidebar { width: 350px; background: #2c3e50; color: white; padding: 20px; box-sizing: border-box; display: flex; flex-direction: column; gap: 15px; z-index: 1000; box-shadow: 2px 0 5px rgba(0,0,0,0.3); }
+        #map { flex-grow: 1; height: 100%; background: #1a252f; }
+        h2 { margin-top: 0; color: #1abc9c; }
+        label { font-size: 14px; font-weight: bold; }
+        select, input, button { width: 100%; padding: 10px; border-radius: 4px; border: none; box-sizing: border-box; }
+        select, input { background: #34495e; color: white; margin-top: 5px; }
+        button { background: #1abc9c; color: white; font-weight: bold; cursor: pointer; transition: 0.2s; margin-top: 10px;}
+        button:hover { background: #16a085; }
+        .info-card { background: #34495e; padding: 15px; border-radius: 6px; margin-top: 15px; font-size: 14px; border-left: 4px solid #1abc9c; display: none; line-height: 1.4; }
+    </style>
+</head>
+<body>
+
+    <div id="sidebar">
+        <h2>Smart Travel Map</h2>
+        
+        <!-- Standard Filters - Now showing all 12 months -->
+        <div>
+            <label for="monthSelect">Target Month</label>
+            <select id="monthSelect" onchange="renderMapLayers()">
+                <option value="1">January</option>
+                <option value="2">February</option>
+                <option value="3">March</option>
+                <option value="4">April</option>
+                <option value="5">May</option>
+                <option value="6">June</option>
+                <option value="7">July</option>
+                <option value="8">August</option>
+                <option value="9">September</option>
+                <option value="10">October</option>
+                <option value="11">November</option>
+                <option value="12">December</option>
+            </select>
+        </div>
+
+        <div>
+            <label for="budgetInput">Max Daily Cost (USD)</label>
+            <input type="number" id="budgetInput" value="300" oninput="renderMapLayers()">
+        </div>
+
+        <hr style="border-color: #465d75; width: 100%;">
+
+        <!-- Built-in Smart Travel Assistant Input -->
+        <div>
+            <label for="aiPrompt">Ask Smart Travel Search</label>
+            <input type="text" id="aiPrompt" placeholder="e.g., Thailand in October under 50 dollars">
+            <button onclick="runAISearch()">Filter Map Instantly</button>
+        </div>
+
+        <!-- Dynamic Output Display Box -->
+        <div id="infoBox" class="info-card"></div>
+    </div>
+
+    <div id="map"></div>
+
+    <!-- Leaflet Engine Script -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        // GLOBAL 12-MONTH DATABASE MATRIX
+        const travelData = {
+          "JP": {
+            "country": "Japan",
+            "months": {
+              "1": { "temp": 5, "flight_price": 700, "daily_cost": 130, "note": "Cold, excellent skiing conditions in Hokkaido." },
+              "2": { "temp": 6, "flight_price": 680, "daily_cost": 125, "note": "Winter festivals and beautiful snow scenes." },
+              "3": { "temp": 10, "flight_price": 950, "daily_cost": 150, "note": "Early plum blossoms; spring transition starts." },
+              "4": { "temp": 17, "flight_price": 1200, "daily_cost": 180, "note": "Peak Cherry Blossom season. Beautiful but very crowded." },
+              "5": { "temp": 22, "flight_price": 800, "daily_cost": 140, "note": "Pleasant warm weather; avoid Golden Week crowds." },
+              "6": { "temp": 25, "flight_price": 750, "daily_cost": 130, "note": "Rainy season begins; lush green landscapes." },
+              "7": { "temp": 29, "flight_price": 900, "daily_cost": 150, "note": "Hot and humid summer festivals and fireworks." },
+              "8": { "temp": 30, "flight_price": 950, "daily_cost": 160, "note": "Peak summer holidays; great mountain hiking." },
+              "9": { "temp": 26, "flight_price": 780, "daily_cost": 135, "note": "Mild weather, occasional autumn typhoons." },
+              "10": { "temp": 19, "flight_price": 850, "daily_cost": 140, "note": "Perfect autumn foliage and mild trekking weather." },
+              "11": { "temp": 14, "flight_price": 800, "daily_cost": 135, "note": "Crisp autumn air and bright red maple leaves." },
+              "12": { "temp": 9, "flight_price": 850, "daily_cost": 140, "note": "Winter illuminations and clean, clear views." }
+            }
+          },
+          "IT": {
+            "country": "Italy",
+            "months": {
+              "1": { "temp": 11, "flight_price": 450, "daily_cost": 90, "note": "Chilly, but low crowds in historic cities." },
+              "2": { "temp": 12, "flight_price": 480, "daily_cost": 95, "note": "Carneval season in Venice; cool sightseeing." },
+              "3": { "temp": 15, "flight_price": 550, "daily_cost": 110, "note": "Spring dynamic weather; historic sights open early." },
+              "4": { "temp": 19, "flight_price": 750, "daily_cost": 130, "note": "Easter events; wild spring flowers in bloom." },
+              "5": { "temp": 23, "flight_price": 800, "daily_cost": 140, "note": "Beautiful spring weather, ideal for sightseeing." },
+              "6": { "temp": 27, "flight_price": 950, "daily_cost": 160, "note": "Summer begins; perfect beach conditions." },
+              "7": { "temp": 30, "flight_price": 1100, "daily_cost": 180, "note": "Very hot and packed with peak summer tourists." },
+              "8": { "temp": 31, "flight_price": 1150, "daily_cost": 185, "note": "Ferragosto holidays; locals head to beaches." },
+              "9": { "temp": 26, "flight_price": 850, "daily_cost": 150, "note": "Excellent grape harvest season; warm seas." },
+              "10": { "temp": 21, "flight_price": 650, "daily_cost": 120, "note": "Mild autumn weather; great wine tours." },
+              "11": { "temp": 16, "flight_price": 500, "daily_cost": 100, "note": "Rainy season across Tuscany; highly affordable." },
+              "12": { "temp": 12, "flight_price": 700, "daily_cost": 115, "note": "Festive Christmas markets and holiday shopping." }
+            }
+          },
+          "TH": {
+            "country": "Thailand",
+            "months": {
+              "1": { "temp": 28, "flight_price": 900, "daily_cost": 45, "note": "Cool and dry season. Perfect beach weather." },
+              "2": { "temp": 29, "flight_price": 880, "daily_cost": 45, "note": "Excellent island visibility; dry weather holds." },
+              "3": { "temp": 31, "flight_price": 800, "daily_cost": 40, "note": "Temperatures rise sharply; good airfare rates." },
+              "4": { "temp": 33, "flight_price": 850, "daily_cost": 45, "note": "Songkran Water Festival nationwide celebration." },
+              "5": { "temp": 32, "flight_price": 700, "daily_cost": 35, "note": "Monsoon transitions begin; brief showers." },
+              "6": { "temp": 31, "flight_price": 720, "daily_cost": 35, "note": "Intermittent afternoon rain storms; cheap hotel rates." },
+              "7": { "temp": 30, "flight_price": 750, "daily_cost": 35, "note": "Monsoon season with heavy, frequent rainfall." },
+              "8": { "temp": 30, "flight_price": 760, "daily_cost": 35, "note": "Lush national parks; rain peaks in the north." },
+              "9": { "temp": 29, "flight_price": 680, "daily_cost": 30, "note": "Wettest month of the year; maximum hotel deals." },
+              "10": { "temp": 29, "flight_price": 700, "daily_cost": 35, "note": "Rain begins to clear out; budget-friendly transition month." },
+              "11": { "temp": 29, "flight_price": 850, "daily_cost": 40, "note": "Loy Krathong festival; cool breeze returns." },
+              "12": { "temp": 27, "flight_price": 950, "daily_cost": 50, "note": "Peak prime holiday season; sunny skies everywhere." }
+            }
+          },
+          "ZA": {
+            "country": "South Africa",
+            "months": {
+              "1": { "temp": 26, "flight_price": 1100, "daily_cost": 85, "note": "Peak summer warmth. Excellent for Cape Town beaches." },
+              "2": { "temp": 26, "flight_price": 1050, "daily_cost": 80, "note": "Warm, sunny beach days and dry wine route trails." },
+              "3": { "temp": 24, "flight_price": 950, "daily_cost": 75, "note": "Pleasant autumn transition; highly comfortable weather." },
+              "4": { "temp": 21, "flight_price": 850, "daily_cost": 70, "note": "Crisp clear days; prime vineyard hiking landscapes." },
+              "5": { "temp": 19, "flight_price": 800, "daily_cost": 65, "note": "Cooler conditions; safari bush clears out." },
+              "6": { "temp": 17, "flight_price": 780, "daily_cost": 60, "note": "Winter begins; excellent clear safari tracking windows." },
+              "7": { "temp": 17, "flight_price": 950, "daily_cost": 70, "note": "Winter season. Optimal for wildlife safari tracking." },
+              "8": { "temp": 18, "flight_price": 900, "daily_cost": 70, "note": "Whale watching peak season along the southern coast." },
+              "9": { "temp": 20, "flight_price": 850, "daily_cost": 75, "note": "Spring returns; massive wild desert blooms visible." },
+              "10": { "temp": 21, "flight_price": 850, "daily_cost": 75, "note": "Spring blooms across the coast; very pleasant weather." },
+              "11": { "temp": 23, "flight_price": 950, "daily_cost": 80, "note": "Summer builds up; great jacaranda blooms in cities." },
+              "12": { "temp": 25, "flight_price": 1200, "daily_cost": 90, "note": "Festive summer peak season; booking ahead vital." }
+            }
+          },
+          "US": {
+            "country": "United States",
+            "months": {
+              "1": { "temp": 4, "flight_price": 300, "daily_cost": 150, "note": "Cold in the north; popular ski operations active." },
+              "2": { "temp": 5, "flight_price": 320, "daily_cost": 145, "note": "Winter sports peak; desert southwest stays warm." },
+              "3": { "temp": 10, "flight_price": 400, "daily_cost": 150, "note": "Spring break season; weather warming in the south." },
+              "4": { "temp": 15, "flight_price": 450, "daily_cost": 155, "note": "Cherry blossoms in DC; green valleys re-opening." },
+              "5": { "temp": 20, "flight_price": 500, "daily_cost": 160, "note": "Mild spring across national parks with lower crowds." },
+              "6": { "temp": 25, "flight_price": 600, "daily_cost": 180, "note": "Summer breaks kick off; busy theme parks." },
+              "7": { "temp": 28, "flight_price": 700, "daily_cost": 200, "note": "Peak summer vacation time; expensive lodging." },
+              "8": { "temp": 28, "flight_price": 680, "daily_cost": 195, "note": "Hot coastal beaches; high state-fair activities." },
+              "9": { "temp": 23, "flight_price": 550, "daily_cost": 170, "note": "Ideal mountain conditions; summer crowd clears out." },
+              "10": { "temp": 16, "flight_price": 480, "daily_cost": 150, "note": "Stunning autumn leaf changes across New England." },
+              "11": { "temp": 10, "flight_price": 500, "daily_cost": 160, "note": "Holiday Thanksgiving rush; winter weather starts." },
+              "12": { "temp": 5, "flight_price": 650, "daily_cost": 180, "note": "Festive window decorations and winter snow resorts." }
+            }
+          }
+        };
+
+        // EMBEDDED GEOMETRY DATA MAP (Eliminates CORS error blocks entirely)
+        const localGeoJSON = {
+            "type": "FeatureCollection",
+            "features": [
+                { "type": "Feature", "properties": { "ISO_A2": "US", "ADMIN": "United States" }, "geometry": { "type": "Polygon", "coordinates": [[[-125,24],[-125,49],[-67,49],[-67,24],[-125,24]]] } },
+                { "type": "Feature", "properties": { "ISO_A2": "IT", "ADMIN": "Italy" }, "geometry": { "type": "Polygon", "coordinates": [[[7,46],[18,46],[18,36],[12,36],[7,46]]] } },
+                { "type": "Feature", "properties": { "ISO_A2": "JP", "ADMIN": "Japan" }, "geometry": { "type": "Polygon", "coordinates": [[[129,31],[146,45],[142,46],[128,33],[129,31]]] } },
+                { "type": "Feature", "properties": { "ISO_A2": "TH", "ADMIN": "Thailand" }, "geometry": { "type": "Polygon", "coordinates": [[[97,6],[106,6],[106,21],[97,21],[97,6]]] } },
+                { "type": "Feature", "properties": { "ISO_A2": "ZA", "ADMIN": "South Africa" }, "geometry": { "type": "Polygon", "coordinates": [[[16,-35],[33,-35],[33,-22],[20,-22],[16,-35]]] } }
+            ]
+        };
+
+        let map, geojsonLayer;
+
+        function initMap() {
+            // Setup Map viewport focus point
+            map = L.map('map').setView([20, 0], 2);
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+                attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
+            }).addTo(map);
+            
+            renderMapLayers();
+        }
+
+        function renderMapLayers() {
+            if (geojsonLayer) map.removeLayer(geojsonLayer);
+
+            const activeMonth = document.getElementById('monthSelect').value;
+            const maxBudget = parseFloat(document.getElementById('budgetInput').value);
+
+            geojsonLayer = L.geoJSON(localGeoJSON, {
+                style: function(feature) {
+                    const isoCode = feature.properties.ISO_A2; 
+                    const countryMatch = travelData[isoCode];
+                    
+                    if (countryMatch && countryMatch.months[activeMonth]) {
+                        const monthInfo = countryMatch.months[activeMonth];
+                        // If country is within user's daily financial parameter, paint it bright teal
+                        if (monthInfo.daily_cost <= maxBudget) {
+                            return { fillColor: '#1abc9c', weight: 2, opacity: 1, color: '#fff', fillOpacity: 0.6 };
+                        }
+                    }
+                    // Out-of-bounds countries stay dark grey muted slate
+                    return { fillColor: '#34495e', weight: 1, opacity: 0.5, color: '#7f8c8d', fillOpacity: 0.2 };
+                },
+                onEachFeature: function(feature, layer) {
+                    layer.on('click', function() {
+                        displayCountryDetails(feature.properties.ISO_A2, feature.properties.ADMIN);
+                    });
+                }
+            }).addTo(map);
+        }
+
+        function displayCountryDetails(isoCode, fallbackName) {
+            const activeMonth = document.getElementById('monthSelect').value;
+            const countryMatch = travelData[isoCode];
+            const infoBox = document.getElementById('infoBox');
+
+            if (countryMatch && countryMatch.months[activeMonth]) {
+                const stats = countryMatch.months[activeMonth];
+                infoBox.style.display = "block";
+                infoBox.innerHTML = `
+                    <strong>${countryMatch.country}</strong><br>
+                    ☀️ Avg Temperature: ${stats.temp}°C<br>
+                    ✈️ Est Flight Cost: $${stats.flight_price}<br>
+                    💰 Daily Expenses: $${stats.daily_cost}/day<br>
+                    📝 <em>${stats.note}</em>
+                `;
+            } else {
+                infoBox.style.display = "block";
+                infoBox.innerHTML = `<strong>${fallbackName}</strong><br>No travel details configured for this selection.`;
+            }
+        }
+
+        // Conversational AI interface local processing parser
+        function runAISearch() {
+            const text = document.getElementById('aiPrompt').value.toLowerCase();
+            const infoBox = document.getElementById('infoBox');
+            
+            let detectedMonth = document.getElementById('monthSelect').value;
+            let detectedBudget = document.getElementById('budgetInput').value;
+
+            // Month text scanner
+            if (text.includes("jan") || text.includes("january")) detectedMonth = "1";
+            if (text.includes("feb") || text.includes("february")) detectedMonth = "2";
+            if (text.includes("mar") || text.includes("march")) detectedMonth = "3";
+            if (text.includes("apr") || text.includes("april")) detectedMonth = "4";
+            if (text.includes("may")) detectedMonth = "5";
+            if (text.includes("jun") || text.includes("june")) detectedMonth = "6";
+            if (text.includes("jul") || text.includes("july")) detectedMonth = "7";
+            if (text.includes("aug") || text.includes("august")) detectedMonth = "8";
+            if (text.includes("sep") || text.includes("september")) detectedMonth = "9";
+            if (text.includes("oct") || text.includes("october")) detectedMonth = "10";
+            if (text.includes("nov") || text.includes("november")) detectedMonth = "11";
+            if (text.includes("dec") || text.includes("december")) detectedMonth = "12";
+
+            // Price parameter scanner
+            const moneyMatches = text.match(/\d+/g);
+            if (moneyMatches) {
+                for (let num of moneyMatches) {
+                    const parsedNum = parseInt(num);
+                    if (parsedNum > 12) { // Prevents mixing calendar months with budget values
+                        detectedBudget = parsedNum;
+                        break;
+                    }
+                }
+            }
+
+            // Sync visual controls with parsed user text configurations
+            document.getElementById('monthSelect').value = detectedMonth;
+            document.getElementById('budgetInput').value = detectedBudget;
+
+            infoBox.style.display = "block";
+            infoBox.innerHTML = `✨ <strong>AI View Adjusted!</strong><br>Displaying targets for Month format [${detectedMonth}] under $${detectedBudget}/day.`;
+            
+            renderMapLayers();
+        }
+
+        window.onload = initMap;
+    </script>
+</body>
+</html>
