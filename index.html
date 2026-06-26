@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Smart Travel Map</title>
+    <!-- Leaflet Open-Source Mapping CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        body { margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; display: flex; height: 100vh; }
+        #sidebar { width: 350px; background: #2c3e50; color: white; padding: 20px; box-sizing: border-box; display: flex; flex-direction: column; gap: 15px; z-index: 1000; box-shadow: 2px 0 5px rgba(0,0,0,0.3); }
+        #map { flex-grow: 1; height: 100%; background: #1a252f; }
+        h2 { margin-top: 0; color: #1abc9c; }
+        label { font-size: 14px; font-weight: bold; }
+        select, input, button { width: 100%; padding: 10px; border-radius: 4px; border: none; box-sizing: border-box; }
+        select, input { background: #34495e; color: white; margin-top: 5px; }
+        button { background: #1abc9c; color: white; font-weight: bold; cursor: pointer; transition: 0.2s; margin-top: 10px;}
+        button:hover { background: #16a085; }
+        .info-card { background: #34495e; padding: 15px; border-radius: 6px; margin-top: 15px; font-size: 14px; border-left: 4px solid #1abc9c; display: none; line-height: 1.4; }
+    </style>
+</head>
+<body>
+
+    <div id="sidebar">
+        <h2>Smart Travel Map</h2>
+        
+        <!-- Standard Filters -->
+        <div>
+            <label for="monthSelect">Target Month</label>
+            <select id="monthSelect" onchange="applyManualFilters()">
+                <option value="1">January</option>
+                <option value="4">April</option>
+                <option value="5">May</option>
+                <option value="7">July</option>
+                <option value="10">October</option>
+            </select>
+        </div>
+
+        <div>
+            <label for="budgetInput">Max Daily Cost (USD)</label>
+            <input type="number" id="budgetInput" value="300" oninput="applyManualFilters()">
+        </div>
+
+        <hr style="border-color: #465d75; width: 100%;">
+
+        <!-- AI Assistant Filter -->
+        <div>
+            <label for="aiPrompt">Ask Gemini Travel Search</label>
+            <input type="text" id="aiPrompt" placeholder="e.g., Show me warm places in July under $100 a day">
+            <button onclick="runAISearch()">Filter Map with AI</button>
+        </div>
+
+        <!-- Dynamic Output Display Box -->
+        <div id="infoBox" class="info-card"></div>
+    </div>
+
+    <div id="map"></div>
+
+    <!-- Leaflet Engine Script -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        // 1. YOUR APPLIED GEMINI API KEY
+        const GEMINI_API_KEY = "AQ.Ab8RN6LnDQfIpIEP3DKqIV786kbRiVc-7DjA74qaaDxUVoGiwg"; 
+
+        // 2. EMBEDDED GLOBAL DATABASE MATRIX
+        const travelData = {
+          "JP": {
+            "country": "Japan",
+            "months": {
+              "1": { "temp": 5, "flight_price": 700, "daily_cost": 130, "note": "Cold, excellent skiing conditions in Hokkaido." },
+              "4": { "temp": 17, "flight_price": 1200, "daily_cost": 180, "note": "Peak Cherry Blossom season. Beautiful but very crowded." },
+              "10": { "temp": 19, "flight_price": 850, "daily_cost": 140, "note": "Perfect autumn foliage and mild trekking weather." }
+            }
+          },
+          "IT": {
+            "country": "Italy",
+            "months": {
+              "1": { "temp": 11, "flight_price": 450, "daily_cost": 90, "note": "Chilly, but low crowds in historic cities." },
+              "5": { "temp": 23, "flight_price": 800, "daily_cost": 140, "note": "Beautiful spring weather, ideal for sightseeing." },
+              "7": { "temp": 30, "flight_price": 1100, "daily_cost": 180, "note": "Very hot and packed with peak summer tourists." }
+            }
+          },
+          "TH": {
+            "country": "Thailand",
+            "months": {
+              "1": { "temp": 28, "flight_price": 900, "daily_cost": 45, "note": "Cool and dry season. Perfect beach weather." },
+              "7": { "temp": 30, "flight_price": 750, "daily_cost": 35, "note": "Monsoon season with heavy, frequent rainfall." },
+              "10": { "temp": 29, "flight_price": 700, "daily_cost": 35, "note": "Rain begins to clear out; budget-friendly transition month." }
+            }
+          },
+          "ZA": {
+            "country": "South Africa",
+            "months": {
+              "1": { "temp": 26, "flight_price": 1100, "daily_cost": 85, "note": "Peak summer warmth. Excellent for Cape Town beaches." },
+              "7": { "temp": 17, "flight_price": 950, "daily_cost": 70, "note": "Winter season. Optimal for wildlife safari tracking." },
+              "10": { "temp": 21, "flight_price": 850, "daily_cost": 75, "note": "Spring blooms across the coast; very pleasant weather." }
+            }
+          },
+          "US": {
+            "country": "United States",
+            "months": {
+              "1": { "temp": 4, "flight_price": 300, "daily_cost": 150, "note": "Cold in the north; popular ski operations active." },
+              "5": { "temp": 20, "flight_price": 500, "daily_cost": 160, "note": "Mild spring across national parks with lower crowds." },
+              "7": { "temp": 28, "flight_price": 700, "daily_cost": 200, "note": "Peak summer vacation time; expensive lodging." }
+            }
+          }
+        };
+
+        let map, geojsonLayer;
+
+        function initMap() {
+            map = L.map('map').setView([20, 0], 2);
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+                attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
+            }).addTo(map);
+            loadMapGeometry();
+        }
+
+        function loadMapGeometry() {
+            fetch('https://raw.githubusercontent.com/datasets/geo-countries/master/data/countries.geojson')
+                .then(res => res.json())
+                .then(geojsonData => {
+                    renderMapLayers(geojsonData);
+                }).catch(err => {
+                    document.getElementById('infoBox').style.display = "block";
+                    document.getElementById('infoBox').innerHTML = "⚠️ Error loading map boundaries. Ensure you are connected to the internet.";
+                });
+        }
+
+        function renderMapLayers(geojsonData) {
+            if (geojsonLayer) map.removeLayer(geojsonLayer);
+
+            const activeMonth = document.getElementById('monthSelect').value;
+            const maxBudget = parseFloat(document.getElementById('budgetInput').value);
+
+            geojsonLayer = L.geoJSON(geojsonData, {
+                style: function(feature) {
+                    const isoCode = feature.properties.ISO_A2; 
+                    const countryMatch = travelData[isoCode];
+                    
+                    if (countryMatch && countryMatch.months[activeMonth]) {
+                        const monthInfo = countryMatch.months[activeMonth];
+                        if (monthInfo.daily_cost <= maxBudget) {
+                            return { fillColor: '#1abc9c', weight: 1, opacity: 1, color: '#fff', fillOpacity: 0.6 };
+                        }
+                    }
+                    return { fillColor: '#34495e', weight: 0.5, opacity: 0.5, color: '#7f8c8d', fillOpacity: 0.2 };
+                },
+                onEachFeature: function(feature, layer) {
+                    layer.on('click', function() {
+                        displayCountryDetails(feature.properties.ISO_A2, feature.properties.ADMIN);
+                    });
+                }
+            }).addTo(map);
+        }
+
+        function displayCountryDetails(isoCode, fallbackName) {
+            const activeMonth = document.getElementById('monthSelect').value;
+            const countryMatch = travelData[isoCode];
+            const infoBox = document.getElementById('infoBox');
+
+            if (countryMatch && countryMatch.months[activeMonth]) {
+                const stats = countryMatch.months[activeMonth];
+                infoBox.style.display = "block";
+                infoBox.innerHTML = `
+                    <strong>${countryMatch.country} (${fallbackName})</strong><br>
+                    ☀️ Avg Temperature: ${stats.temp}°C<br>
+                    ✈️ Est Flight Cost: $${stats.flight_price}<br>
+                    💰 Daily Expenses: $${stats.daily_cost}/day<br>
+                    📝 <em>${stats.note}</em>
+                `;
+            } else {
+                infoBox.style.display = "block";
+                infoBox.innerHTML = `<strong>${fallbackName}</strong><br>No travel details configured for this month choice.`;
+            }
+        }
+
+        function applyManualFilters() {
+            loadMapGeometry();
+        }
+
+        // Connect Search Input with the Gemini AI Inference Model
+        async function runAISearch() {
+            const prompt = document.getElementById('aiPrompt').value;
+            if (!prompt) return;
+
+            const infoBox = document.getElementById('infoBox');
+            infoBox.style.display = "block";
+            infoBox.innerHTML = "Thinking... Processing AI map parameters.";
+
+            // Dynamic Router Configuration for alternate key structures
+            let endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent";
+            let headers = { 'Content-Type': 'application/json' };
+
+            if (GEMINI_API_KEY.startsWith("AIzaSy")) {
+                // Regular public API key route
+                endpoint += `?key=${GEMINI_API_KEY}`;
+            } else {
+                // Enterprise / service OAuth alternative route required by image_2b6390.png
+                headers['Authorization'] = `Bearer ${GEMINI_API_KEY}`;
+            }
+
+            const payload = {
+                contents: [{
+                    parts: [{
+                        text: `Analyze this user travel filter request: "${prompt}". 
+                        Convert it into a clean JSON structure with exactly these keys: "month" (integer 1-12), "max_cost" (integer max daily budget allowed in USD), and "min_temp" (integer minimum target Celsius).
+                        If a condition isn't mentioned, supply a standard default value (defaults: month=1, max_cost=500, min_temp=0). 
+                        Return ONLY the raw JSON block without formatting, markdown, backticks, or text wrapping.`
+                    }]
+                }]
+            };
+
+            try {
+                const response = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: headers,
+                    body: JSON.stringify(payload)
+                });
+                
+                const jsonResult = await response.json();
+                
+                if (jsonResult.error) {
+                    throw new Error(jsonResult.error.message);
+                }
+                
+                let aiResponseText = jsonResult.candidates[0].content.parts[0].text.trim();
+                aiResponseText = aiResponseText.replace(/```json/g, "").replace(/```/g, "").trim();
+                
+                const mapFilters = JSON.parse(aiResponseText);
+                
+                document.getElementById('monthSelect').value = mapFilters.month.toString();
+                document.getElementById('budgetInput').value = mapFilters.max_cost.toString();
+                
+                infoBox.innerHTML = `✨ <strong>AI Search Executed!</strong><br>Set Map Month to: ${mapFilters.month}, Max Daily Cost: $${mapFilters.max_cost} USD.`;
+                
+                loadMapGeometry();
+
+            } catch (error) {
+                console.error(error);
+                infoBox.innerHTML = `❌ Connection Error: ${error.message || "Ensure your key is valid."}`;
+            }
+        }
+
+        window.onload = initMap;
+    </script>
+</body>
+</html>
